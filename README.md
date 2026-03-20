@@ -1,182 +1,94 @@
-# GTA-Apple: AltServer + Anisette Docker 部署
+# GTA-Apple: 只维护 run.sh 的部署方式
 
-[![Build and Push](https://github.com/YOUR_USERNAME/GTA-Apple/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/YOUR_USERNAME/GTA-Apple/actions/workflows/docker-publish.yml)
+这个仓库现在以 `run.sh` 为唯一部署入口。
 
-## 架构
+- 不再依赖 `docker-compose.yml`
+- 服务器上只保留 `run.sh` 也能部署
+- 如果目录里有 `Dockerfile`，默认走本地构建模式
+- 如果目录里没有 `Dockerfile`，默认走镜像拉取模式
 
-```
-┌───────────────────────────────────────────────────────┐
-│                   Docker Network                      │
-│                                                       │
-│  ┌──────────────────┐   ┌──────────────────────────┐  │
-│  │  Anisette v3     │   │  AltServer-Linux         │  │
-│  │  (官方维护镜像)    │◄──│  (自建镜像 → Docker Hub) │  │
-│  │  :6969            │   │                          │  │
-│  └──────────────────┘   └──────────────────────────┘  │
-│                                  │                    │
-└──────────────────────────────────┼────────────────────┘
-                                   │
-                          USB/WiFi 连接 iOS 设备
-```
+## 最小部署方式
 
-**镜像发布策略：**
-- **Anisette v3** → `dadoum/anisette-v3-server` — 官方社区维护，直接引用，无需自建
-- **AltServer** → `YOUR_USERNAME/gta-altserver` — 自建镜像，通过 GitHub Actions 自动构建推送到 Docker Hub
-- **底层 Linux** → `Debian Trixie slim` — 当前稳定版，兼顾新包与稳定性
+部署服务器只需要这些内容：
 
-## Docker Hub
+- `run.sh`
+- `.env`，仅在镜像拉取模式下需要设置 `ALTSERVER_IMAGE`
+- `ipa/` 目录，只有安装 IPA 时才需要
 
-```bash
-docker pull YOUR_USERNAME/gta-altserver:latest
-```
-
-支持架构：`linux/amd64`、`linux/arm64`
-
-## 已做的稳定性优化
-
-- AltServer 自建镜像升级到 `Debian Trixie slim`，不再停留在旧的 `bookworm`
-- 构建阶段增加下载重试和回退逻辑，降低 GitHub API 抖动导致的失败率
-- 运行容器切换为非 root 用户，降低容器权限风险
-- Compose 增加 `healthcheck`、`init: true`、`unless-stopped`，并在依赖 Anisette 变更时联动重启，启动和重启行为更稳
-- `run.sh` 去掉默认 `--no-cache`，改为复用缓存并拉取新的基础层，构建明显更快
-- `pull` 部署路径改为 `--no-build`，避免生产环境误触发本地构建
-- AltServer 不再暴露未被上游官方文档证实的宿主机端口，减少误导和无效暴露面
-- `run.sh push` 改为 `buildx` 多架构推送，和文档宣称的 `amd64/arm64` 支持一致
-
-## 快速开始
-
-### 1. 克隆项目
-
-```bash
-git clone https://github.com/YOUR_USERNAME/GTA-Apple.git
-cd GTA-Apple
-```
-
-### 2. 一键部署
+首次执行会自动生成 `.env`。
 
 ```bash
 chmod +x run.sh
 ./run.sh
 ```
 
-### 3. 检查状态
+如果服务器上没有 `Dockerfile`，脚本会自动要求从镜像仓库拉取 AltServer 镜像。
 
-```bash
-./run.sh status
-./run.sh health
-```
+## 配置
 
-## 安装 IPA 到设备
+首次运行会自动生成 `.env`，核心变量如下：
 
-1. 将 IPA 文件放到 `ipa/` 目录
-2. 获取设备 UDID
-3. 执行安装：
-
-```bash
-./run.sh install <UDID> <AppleID> <密码> <IPA文件名>
-```
-
-示例：
-```bash
-./run.sh install 00008030-XXXXXXXXXXXX user@icloud.com password123 app.ipa
-```
+| 变量 | 说明 |
+|------|------|
+| `ALTSERVER_IMAGE` | 镜像拉取模式使用的 AltServer 镜像，例如 `yourname/gta-altserver:latest` |
+| `DOCKERHUB_USERNAME` | 本地执行 `./run.sh push` 时可选，用来推导镜像名 |
+| `DEBIAN_RELEASE` | 本地构建 AltServer 镜像时使用的 Debian 版本，默认 `trixie` |
+| `ANISETTE_BIND_ADDRESS` | Anisette 绑定地址，默认 `127.0.0.1`，仅本机可访问 |
+| `ANISETTE_PORT` | 宿主机暴露的 Anisette 端口，默认 `6969` |
+| `USBMUXD_SOCKET_ADDRESS` | WiFi 刷新场景下的 netmuxd 地址 |
 
 ## 常用命令
 
 | 命令 | 说明 |
 |------|------|
-| `./run.sh` | 完整部署（首次使用） |
-| `./run.sh start` | 启动服务 |
-| `./run.sh stop` | 停止服务 |
-| `./run.sh restart` | 重启服务 |
+| `./run.sh` | 自动部署，优先本地构建，否则回退到镜像拉取 |
+| `./run.sh pull` | 强制从镜像仓库拉取并部署 |
+| `./run.sh start` | 启动现有容器 |
+| `./run.sh stop` | 停止容器 |
+| `./run.sh restart` | 重启容器 |
 | `./run.sh status` | 查看状态 |
-| `./run.sh logs` | 查看所有日志 |
+| `./run.sh logs` | 查看全部日志 |
 | `./run.sh logs anisette` | 查看 Anisette 日志 |
 | `./run.sh logs altserver` | 查看 AltServer 日志 |
 | `./run.sh update` | 更新并重新部署 |
-| `./run.sh push [tag]` | 本地多架构构建并推送 AltServer 镜像 |
-| `./run.sh pull` | 从镜像仓库拉取 AltServer 并部署 |
-| `./run.sh clean` | 清理所有数据 |
-| `./run.sh health` | 健康检查 |
+| `./run.sh install <UDID> <AppleID> <密码> <IPA>` | 安装 IPA |
+| `./run.sh push [tag]` | 多架构构建并推送 AltServer 镜像 |
+| `./run.sh clean` | 清理容器、网络、数据卷 |
+| `./run.sh health` | 查看健康状态 |
 
-## 配置说明
+## 运行逻辑
 
-复制 `.env.example` 为 `.env` 并按需修改（首次运行会自动创建）：
+脚本直接调用这些 Docker 原生命令管理服务：
+
+- `docker network create`
+- `docker volume create`
+- `docker run`
+- `docker rm -f`
+- `docker pull`
+- `docker build`
+
+也就是说，部署服务器侧不需要再额外维护 Compose 文件。
+
+## 镜像说明
+
+- `dadoum/anisette-v3-server:latest`：官方社区维护的 Anisette 容器，直接复用
+- `AltServer` 镜像：仓库内 `Dockerfile` 本地构建，或者通过 `ALTSERVER_IMAGE` 从仓库拉取
+- 底层系统：`Debian Trixie slim`
+- Anisette 默认只绑定到宿主机 `127.0.0.1`，避免 Docker 默认的全网卡暴露；如果你确实要提供远程访问，再把 `ANISETTE_BIND_ADDRESS` 改成 `0.0.0.0`
+
+## 安装 IPA
+
+把 IPA 放到 `ipa/` 目录后执行：
 
 ```bash
-cp .env.example .env
+./run.sh install <UDID> <AppleID> <密码> <IPA文件名>
 ```
 
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `ALTSERVER_IMAGE` | yourusername/gta-altserver:latest | AltServer 镜像地址 |
-| `DOCKERHUB_USERNAME` | yourusername | 本地 `push` 用的 Docker Hub 用户名 |
-| `DEBIAN_RELEASE` | trixie | 自建镜像底层 Debian 稳定版 |
-| `ANISETTE_PORT` | 6969 | Anisette 服务端口 |
-| `USBMUXD_SOCKET_ADDRESS` | host.docker.internal:27015 | USBMUXD 地址 |
-
-## WiFi 刷新支持
-
-如需 WiFi 刷新功能，在宿主机上运行 netmuxd：
+## 故障排查
 
 ```bash
-# 先用 USB 配对设备
-sudo systemctl start usbmuxd
-# 连接设备并信任
-
-# 停止 usbmuxd，启动 netmuxd
-sudo systemctl stop usbmuxd
-./netmuxd --disable-unix --host 0.0.0.0
-```
-
-## 容器说明
-
-### Anisette v3 Server (官方维护 - 无需自建)
-- 镜像：`dadoum/anisette-v3-server:latest`
-- 维护者：[Dadoum](https://github.com/Dadoum/anisette-v3-server) (SideStore 核心开发者)
-- 端口：6969
-- 提供 Apple 认证所需的 Anisette 数据
-- 活跃维护中 (436 stars, 100K+ Docker pulls)
-- 数据持久化到 `anisette-v3_data` 卷
-
-### AltServer-Linux (自建镜像 → Docker Hub)
-- 镜像：`YOUR_USERNAME/gta-altserver:latest`
-- 基于 Debian Trixie slim 构建
-- 包含 AltServer-Linux v0.0.5 和 netmuxd v0.3.0
-- 支持 amd64 / arm64 多架构
-- 通过 GitHub Actions 自动构建并推送到 Docker Hub
-- 不对外暴露伪 HTTP 端口，主要通过 USB/WiFi mux 与设备交互
-- IPA 文件通过 `ipa/` 目录挂载
-
-## CI/CD 发布流程
-
-推送到 `main` 分支或打 `v*` tag 时，GitHub Actions 会自动：
-1. 构建 `linux/amd64` 和 `linux/arm64` 多架构镜像
-2. 推送到 Docker Hub (`YOUR_USERNAME/gta-altserver`)
-3. 推送到 GitHub Container Registry (`ghcr.io`)
-4. 更新 Docker Hub 描述
-
-### 配置 GitHub Secrets
-
-在仓库 Settings → Secrets → Actions 中添加：
-
-| Secret | 说明 |
-|--------|------|
-| `DOCKERHUB_USERNAME` | Docker Hub 用户名 |
-| `DOCKERHUB_TOKEN` | Docker Hub Access Token |
-
-## 故障排除
-
-```bash
-# 查看容器日志
-./run.sh logs
-
-# 测试 Anisette 服务
-curl http://127.0.0.1:6969
-
-# 进入 AltServer 容器
+./run.sh status
+./run.sh health
+./run.sh logs altserver
 docker exec -it altserver bash
-
-# 重新构建
-./run.sh update
 ```

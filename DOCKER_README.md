@@ -12,31 +12,17 @@ docker pull YOUR_USERNAME/gta-altserver:latest
 
 Works with the official [Anisette v3 Server](https://hub.docker.com/r/dadoum/anisette-v3-server) for Apple authentication.
 
-## Docker Compose (Recommended)
+## Recommended Deployment
 
-```yaml
-services:
-  anisette:
-    image: dadoum/anisette-v3-server:latest
-    restart: always
-    ports:
-      - "6969:6969"
-    volumes:
-      - anisette_data:/home/Alcoholic/.config/anisette-v3/lib/
+Use the repository's `run.sh` as the deployment entrypoint. It manages:
 
-  altserver:
-    image: YOUR_USERNAME/gta-altserver:latest
-    restart: always
-    depends_on:
-      - anisette
-    environment:
-      - ALTSERVER_ANISETTE_SERVER=http://anisette:6969
-    volumes:
-      - ./ipa:/opt/altserver/ipa:ro
+- Docker network creation
+- volume creation
+- `dadoum/anisette-v3-server` startup
+- AltServer container startup
+- health checks and restart flow
 
-volumes:
-  anisette_data:
-```
+If the deployment host only keeps `run.sh`, configure `ALTSERVER_IMAGE` in `.env` and run the script in pull mode.
 
 ## Install IPA
 
@@ -64,6 +50,7 @@ Local publishing should use Docker Buildx so the pushed tag remains multi-archit
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `ALTSERVER_ANISETTE_SERVER` | `http://anisette:6969` | Anisette server URL |
+| `ANISETTE_BIND_ADDRESS` | `127.0.0.1` | Recommended host bind address when publishing the Anisette port |
 | `USBMUXD_SOCKET_ADDRESS` | `host.docker.internal:27015` | USBMUXD socket address |
 
 ## Source Code

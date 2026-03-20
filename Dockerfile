@@ -65,7 +65,7 @@ FROM debian:${DEBIAN_RELEASE}-slim
 
 LABEL org.opencontainers.image.title="GTA-AltServer"
 LABEL org.opencontainers.image.description="AltServer-Linux with netmuxd for iOS sideloading"
-LABEL org.opencontainers.image.source="https://github.com/YOUR_USERNAME/GTA-Apple"
+LABEL org.opencontainers.image.source="https://github.com/GTAStudio/GTA-Apple"
 
 ARG DEBIAN_RELEASE
 
