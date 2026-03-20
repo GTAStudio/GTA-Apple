@@ -4,15 +4,19 @@
 
 - 不再依赖 `docker-compose.yml`
 - 服务器上只保留 `run.sh` 也能部署
+- 无参数执行 `./run.sh` 会进入交互菜单
 - 如果目录里有 `Dockerfile`，默认走本地构建模式
 - 如果目录里没有 `Dockerfile`，默认走镜像拉取模式
+
+详细部署步骤和运维说明见 [DEPLOYMENT.md](DEPLOYMENT.md)。
+给部署人员看的极简清单见 [MINIMAL_DEPLOY.md](MINIMAL_DEPLOY.md)。
 
 ## 最小部署方式
 
 部署服务器只需要这些内容：
 
 - `run.sh`
-- `.env`，仅在镜像拉取模式下需要设置 `ALTSERVER_IMAGE`
+- 可选 `.env`，只有你想覆盖默认参数时才需要
 - `ipa/` 目录，只有安装 IPA 时才需要
 
 首次执行会自动生成 `.env`。
@@ -23,6 +27,8 @@ chmod +x run.sh
 ```
 
 如果服务器上没有 `Dockerfile`，脚本会自动要求从镜像仓库拉取 AltServer 镜像。
+默认内置的 AltServer 镜像是 `aizhihuxiao/gta-altserver:latest`。
+如果目录里存在 `.env`，脚本会自动加载；如果不存在，会基于 `.env.example` 自动生成。
 
 ## 配置
 
@@ -30,7 +36,7 @@ chmod +x run.sh
 
 | 变量 | 说明 |
 |------|------|
-| `ALTSERVER_IMAGE` | 镜像拉取模式使用的 AltServer 镜像，例如 `yourname/gta-altserver:latest` |
+| `ALTSERVER_IMAGE` | 可选覆盖项，默认已内置为 `aizhihuxiao/gta-altserver:latest` |
 | `DOCKERHUB_USERNAME` | 本地执行 `./run.sh push` 时可选，用来推导镜像名 |
 | `DEBIAN_RELEASE` | 本地构建 AltServer 镜像时使用的 Debian 版本，默认 `trixie` |
 | `ANISETTE_BIND_ADDRESS` | Anisette 绑定地址，默认 `127.0.0.1`，仅本机可访问 |
@@ -41,7 +47,10 @@ chmod +x run.sh
 
 | 命令 | 说明 |
 |------|------|
-| `./run.sh` | 自动部署，优先本地构建，否则回退到镜像拉取 |
+| `./run.sh` | 进入交互菜单 |
+| `./run.sh deploy` | 自动部署，优先本地构建，否则回退到镜像拉取 |
+| `./run.sh deploy-build` | 强制本地构建部署 |
+| `./run.sh config` | 交互式修改 `.env` |
 | `./run.sh pull` | 强制从镜像仓库拉取并部署 |
 | `./run.sh start` | 启动现有容器 |
 | `./run.sh stop` | 停止容器 |

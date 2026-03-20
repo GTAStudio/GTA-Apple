@@ -22,7 +22,8 @@ Use the repository's `run.sh` as the deployment entrypoint. It manages:
 - AltServer container startup
 - health checks and restart flow
 
-If the deployment host only keeps `run.sh`, configure `ALTSERVER_IMAGE` in `.env` and run the script in pull mode.
+If the deployment host only keeps `run.sh`, run the script directly in pull mode.
+The current built-in default AltServer image is `aizhihuxiao/gta-altserver:latest`, so `.env` is only needed when overriding that default.
 
 ## Install IPA
 

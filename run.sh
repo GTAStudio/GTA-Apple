@@ -12,6 +12,7 @@ cd "$SCRIPT_DIR"
 ENV_FILE=".env"
 DOCKERFILE_PATH="$SCRIPT_DIR/Dockerfile"
 IPA_DIR="$SCRIPT_DIR/ipa"
+DEFAULT_ALTSERVER_IMAGE="aizhihuxiao/gta-altserver:latest"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -24,6 +25,43 @@ log_info()  { echo -e "${BLUE}[INFO]${NC}  $*"; }
 log_ok()    { echo -e "${GREEN}[OK]${NC}    $*"; }
 log_warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
+
+prompt_yes_no() {
+    local prompt_text="$1"
+    local default_value="${2:-Y}"
+    local answer=""
+
+    if [ "$default_value" = "Y" ]; then
+        read -r -p "$prompt_text [Y/n]: " answer
+        answer="${answer:-Y}"
+    else
+        read -r -p "$prompt_text [y/N]: " answer
+        answer="${answer:-N}"
+    fi
+
+    case "$answer" in
+        y|Y|yes|YES)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+prompt_with_default() {
+    local prompt_text="$1"
+    local default_value="${2:-}"
+    local answer=""
+
+    if [ -n "$default_value" ]; then
+        read -r -p "$prompt_text [$default_value]: " answer
+        echo "${answer:-$default_value}"
+    else
+        read -r -p "$prompt_text: " answer
+        echo "$answer"
+    fi
+}
 
 print_banner() {
     echo -e "${CYAN}"
@@ -53,7 +91,7 @@ load_env() {
     ANISETTE_VOLUME="${ANISETTE_VOLUME:-anisette-v3_data}"
     ALTSERVER_VOLUME="${ALTSERVER_VOLUME:-altserver_data}"
     DOCKERHUB_USERNAME="${DOCKERHUB_USERNAME:-}"
-    ALTSERVER_IMAGE="${ALTSERVER_IMAGE:-${DOCKERHUB_USERNAME:+${DOCKERHUB_USERNAME}/gta-altserver:latest}}"
+    ALTSERVER_IMAGE="${ALTSERVER_IMAGE:-$DEFAULT_ALTSERVER_IMAGE}"
     LOCAL_ALTSERVER_IMAGE="${LOCAL_ALTSERVER_IMAGE:-gta-apple/altserver:local}"
 }
 
@@ -88,18 +126,58 @@ init_env() {
     fi
 
     log_info "创建 .env 配置文件..."
-    cat > "$ENV_FILE" << 'ENVEOF'
+    if [ -f "$SCRIPT_DIR/.env.example" ]; then
+        cp "$SCRIPT_DIR/.env.example" "$ENV_FILE"
+    else
+        cat > "$ENV_FILE" << 'ENVEOF'
 # GTA-Apple 环境配置
-# 仅在镜像拉取部署或镜像推送时需要修改 ALTSERVER_IMAGE / DOCKERHUB_USERNAME
+# ALTSERVER_IMAGE 已内置默认值，如需覆盖再取消注释
 
-ALTSERVER_IMAGE=
+# ALTSERVER_IMAGE=aizhihuxiao/gta-altserver:latest
 DOCKERHUB_USERNAME=
 DEBIAN_RELEASE=trixie
 ANISETTE_PORT=6969
 ANISETTE_BIND_ADDRESS=127.0.0.1
 USBMUXD_SOCKET_ADDRESS=host.docker.internal:27015
 ENVEOF
+    fi
     log_ok ".env 配置文件已创建"
+}
+
+configure_env_interactive() {
+    init_env
+    load_env
+
+    if ! prompt_yes_no "是否要修改当前 .env 配置？" "N"; then
+        return
+    fi
+
+    local new_altserver_image
+    local new_anisette_bind_address
+    local new_anisette_port
+    local new_usbmuxd_socket_address
+    local new_debian_release
+
+    new_altserver_image="$(prompt_with_default "AltServer 镜像地址" "$ALTSERVER_IMAGE")"
+    new_anisette_bind_address="$(prompt_with_default "Anisette 绑定地址" "$ANISETTE_BIND_ADDRESS")"
+    new_anisette_port="$(prompt_with_default "Anisette 端口" "$ANISETTE_PORT")"
+    new_usbmuxd_socket_address="$(prompt_with_default "USBMUXD Socket 地址" "$USBMUXD_SOCKET_ADDRESS")"
+    new_debian_release="$(prompt_with_default "本地构建 Debian 版本" "$DEBIAN_RELEASE")"
+
+    cat > "$ENV_FILE" << ENVEOF
+# GTA-Apple 环境配置
+# 无参数执行 ./run.sh 时会自动加载本文件
+
+ALTSERVER_IMAGE=${new_altserver_image}
+DOCKERHUB_USERNAME=${DOCKERHUB_USERNAME}
+DEBIAN_RELEASE=${new_debian_release}
+ANISETTE_BIND_ADDRESS=${new_anisette_bind_address}
+ANISETTE_PORT=${new_anisette_port}
+USBMUXD_SOCKET_ADDRESS=${new_usbmuxd_socket_address}
+ENVEOF
+
+    load_env
+    log_ok ".env 配置已更新"
 }
 
 init_directories() {
@@ -143,11 +221,6 @@ remove_container() {
 }
 
 require_registry_image() {
-    if [ -z "$ALTSERVER_IMAGE" ]; then
-        log_error "当前是镜像拉取部署，但 .env 中未设置 ALTSERVER_IMAGE。"
-        exit 1
-    fi
-
     if [ "$ALTSERVER_IMAGE" = "yourusername/gta-altserver:latest" ]; then
         log_error "ALTSERVER_IMAGE 仍然是占位值，请改成你的真实镜像地址。"
         exit 1
@@ -296,6 +369,17 @@ deploy() {
     load_env
     init_directories
     deploy_auto
+    log_ok "部署完成"
+    show_service_info
+}
+
+deploy_build_only() {
+    print_banner
+    check_dependencies
+    init_env
+    load_env
+    init_directories
+    deploy_from_build
     log_ok "部署完成"
     show_service_info
 }
@@ -591,12 +675,16 @@ show_help() {
     echo "用法: $0 [命令] [参数]"
     echo ""
     echo "说明:"
+    echo "  无参数执行时进入交互菜单。"
     echo "  默认优先本地构建部署；如果目录中没有 Dockerfile，则自动改为镜像拉取部署。"
-    echo "  因此部署服务器只保留 run.sh 也可以，但需要在 .env 中设置 ALTSERVER_IMAGE。"
+    echo "  默认 AltServer 镜像已内置为 ${DEFAULT_ALTSERVER_IMAGE}，无需手动配置。"
     echo "  Anisette 默认只绑定到 127.0.0.1；如需对外暴露，设置 ANISETTE_BIND_ADDRESS=0.0.0.0。"
     echo ""
     echo "命令:"
-    echo "  (无参数)                    自动部署"
+    echo "  (无参数)                    进入交互菜单"
+    echo "  deploy                      自动部署"
+    echo "  deploy-build                强制本地构建部署"
+    echo "  config                      交互式修改 .env"
     echo "  start                       启动现有容器"
     echo "  stop                        停止服务"
     echo "  restart                     重启服务"
@@ -612,9 +700,123 @@ show_help() {
     echo ""
 }
 
+interactive_install_ipa() {
+    init_directories
+
+    local udid
+    local apple_id
+    local password
+    local ipa_file
+
+    udid="$(prompt_with_default "输入设备 UDID")"
+    apple_id="$(prompt_with_default "输入 Apple ID")"
+    password="$(prompt_with_default "输入 Apple ID 密码")"
+
+    if compgen -G "$IPA_DIR/*.ipa" >/dev/null 2>&1; then
+        echo ""
+        echo "当前可用 IPA 文件:"
+        ls -1 "$IPA_DIR"/*.ipa | sed 's#^.*/##'
+        echo ""
+    else
+        log_warn "当前 ipa/ 目录为空，请先上传要安装的 IPA 文件。"
+    fi
+
+    ipa_file="$(prompt_with_default "输入 IPA 文件名")"
+    install_ipa "$udid" "$apple_id" "$password" "$ipa_file"
+}
+
+interactive_mode() {
+    local choice=""
+
+    print_banner
+    init_env
+    load_env
+
+    while true; do
+        echo ""
+        echo "请选择操作:"
+        echo "  1) 自动部署"
+        echo "  2) 强制拉取镜像部署"
+        echo "  3) 强制本地构建部署"
+        echo "  4) 启动服务"
+        echo "  5) 停止服务"
+        echo "  6) 重启服务"
+        echo "  7) 查看状态"
+        echo "  8) 查看日志"
+        echo "  9) 安装 IPA"
+        echo " 10) 更新部署"
+        echo " 11) 健康检查"
+        echo " 12) 编辑 .env 配置"
+        echo " 13) 显示帮助"
+        echo "  0) 退出"
+        echo ""
+        read -r -p "输入序号: " choice
+
+        case "$choice" in
+            1)
+                deploy
+                ;;
+            2)
+                pull_deploy
+                ;;
+            3)
+                deploy_build_only
+                ;;
+            4)
+                start_services
+                ;;
+            5)
+                stop_services
+                ;;
+            6)
+                restart_services
+                ;;
+            7)
+                show_status
+                ;;
+            8)
+                local log_target
+                log_target="$(prompt_with_default "日志目标(留空=全部, anisette 或 altserver)")"
+                show_logs "$log_target"
+                ;;
+            9)
+                interactive_install_ipa
+                ;;
+            10)
+                update_services
+                ;;
+            11)
+                health_check
+                ;;
+            12)
+                configure_env_interactive
+                ;;
+            13)
+                show_help
+                ;;
+            0)
+                log_info "退出交互模式"
+                return 0
+                ;;
+            *)
+                log_warn "无效选项，请重新输入。"
+                ;;
+        esac
+    done
+}
+
 load_env
 
 case "${1:-}" in
+    deploy)
+        deploy
+        ;;
+    deploy-build)
+        deploy_build_only
+        ;;
+    config)
+        configure_env_interactive
+        ;;
     start)
         start_services
         ;;
@@ -655,7 +857,7 @@ case "${1:-}" in
         show_help
         ;;
     "")
-        deploy
+        interactive_mode
         ;;
     *)
         log_error "未知命令: $1"
